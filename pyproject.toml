@@ -1,0 +1,129 @@
+[project]
+name = "glossate"
+dynamic = ["version"]
+description = "Transcribe and translate video content - audio in, subtitles out"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Anaxonic Labs"}
+]
+keywords = [
+    "video",
+    "audio",
+    "transcription",
+    "translation",
+    "subtitles",
+    "whisper",
+    "ai",
+    "accessibility",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "rich>=13.0.0",
+]
+
+[project.urls]
+Homepage      = "https://github.com/anaxoniclabs/GLOSSATE"
+Repository    = "https://github.com/anaxoniclabs/GLOSSATE"
+Issues        = "https://github.com/anaxoniclabs/GLOSSATE/issues"
+
+[project.optional-dependencies]
+apple = [
+    "mlx-whisper>=0.4.0",
+    "mlx-vlm>=0.5.0",
+]
+cuda = [
+    "accelerate>=0.30.0",
+    "faster-whisper>=1.0.0",
+    "safetensors>=0.4.0",
+    "sentencepiece>=0.1.99",
+    "torch>=2.0.0",
+    "transformers>=5.5.0",
+]
+detect = [
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+]
+mlx-translate = [
+    "mlx-vlm>=0.5.0",
+]
+all = [
+    "accelerate>=0.30.0",
+    "faster-whisper>=1.0.0",
+    "librosa>=0.10.0",
+    "mlx-whisper>=0.4.0",
+    "mlx-vlm>=0.5.0",
+    "safetensors>=0.4.0",
+    "sentencepiece>=0.1.99",
+    "soundfile>=0.12.0",
+    "torch>=2.0.0",
+    "transformers>=5.5.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.0.0",
+    "bandit>=1.7.0",
+]
+
+[project.scripts]
+glossate = "glossate.cli:main"
+
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["glossate*"]
+exclude = ["tests*", "docs*"]
+
+# Single source of truth for the version: glossate/__init__.py::__version__
+[tool.setuptools.dynamic]
+version = {attr = "glossate.__version__"}
+
+[tool.bandit]
+# B404 / B603 (subprocess): all subprocess calls are list-argv, no shell=True.
+# B607 (partial executable path): ffmpeg and vm_stat are resolved via PATH
+#   on purpose — we want the user's installed binary, not a hard-coded path.
+# B110 (try/except/pass): device-detection falls back silently on any failure
+#   by design (must never break a run).
+skips = ["B110", "B404", "B603", "B607"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"glossate/cli.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_return_any = false
+check_untyped_defs = true
