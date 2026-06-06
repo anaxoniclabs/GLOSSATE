@@ -14,6 +14,7 @@ from glossate.core.translator import (
     TranslationModelState,
     _make_batches,
     format_prose,
+    format_prose_batch,
     load_model,
     translate,
 )
@@ -395,3 +396,49 @@ def test_format_prose_empty_input_skips_model() -> None:
     # No monkeypatch: if it tried to call the model it would blow up on the MagicMock.
     assert format_prose("   ", "en", model_state=state) == ""
     assert called == []
+
+
+def test_format_prose_batch_groups_windows_into_few_generate_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The notes path is dominated by per-window generate() overhead. Reflowing
+    # N windows must issue ceil(N / batch_size) batched calls, NOT one-per-window
+    # — a regression to sequential reflow is the 64s/window bug and must fail here.
+    batch_sizes: list[int] = []
+    state = TranslationModelState(
+        model=MagicMock(), tokenizer=MagicMock(), backend="transformers", device="cuda"
+    )
+
+    def fake_call(prompts, st, *, max_new_tokens=1024):  # noqa: ANN001, ANN202
+        batch_sizes.append(len(prompts))
+        return [f"reflowed {i}" for i in range(len(prompts))]
+
+    monkeypatch.setattr("glossate.core.translator._call_transformers", fake_call)
+
+    texts = [f"window {i} text" for i in range(20)]
+    out = format_prose_batch(texts, "tr", model_state=state)
+
+    assert len(out) == 20
+    # 20 windows at batch size 8 → 3 generate() calls (8 + 8 + 4), never 20.
+    assert len(batch_sizes) == 3
+    assert batch_sizes == [8, 8, 4]
+
+
+def test_format_prose_batch_passes_empty_windows_through_without_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = TranslationModelState(
+        model=MagicMock(), tokenizer=MagicMock(), backend="transformers", device="cuda"
+    )
+    prompts_seen: list[str] = []
+
+    def fake_call(prompts, st, *, max_new_tokens=1024):  # noqa: ANN001, ANN202
+        prompts_seen.extend(prompts)
+        return ["X" for _ in prompts]
+
+    monkeypatch.setattr("glossate.core.translator._call_transformers", fake_call)
+
+    out = format_prose_batch(["real", "   ", "also real"], "tr", model_state=state)
+
+    assert out[1] == ""  # blank window never reached the model
+    assert len(prompts_seen) == 2  # only the two non-empty windows

@@ -625,6 +625,33 @@ def _translate_transformers_batch(
     return [_with_translation(cue, text, target) for cue, text in zip(batch, texts)]
 
 
+def _resolve_eos_ids(tok: Any, model: Any) -> list[int]:
+    """Stop tokens for generation, including Gemma's ``<end_of_turn>``.
+
+    Greedy generation otherwise runs to ``max_new_tokens`` even after the
+    model has emitted its turn terminator — and ``_clean_prose`` already
+    discards everything past ``<end_of_turn>``, so those tokens are pure
+    wasted decode. Stopping at them yields byte-identical text, faster.
+    """
+    ids: set[int] = set()
+    cfg = getattr(model, "generation_config", None)
+    cur = getattr(cfg, "eos_token_id", None) if cfg is not None else None
+    if cur is not None:
+        ids.update(cur if isinstance(cur, (list, tuple)) else [cur])
+    base = getattr(tok, "eos_token_id", None)
+    if isinstance(base, int):
+        ids.add(base)
+    unk = getattr(tok, "unk_token_id", None)
+    for name in ("<end_of_turn>", "<eos>"):
+        try:
+            tid = tok.convert_tokens_to_ids(name)
+        except Exception:
+            tid = None
+        if isinstance(tid, int) and tid >= 0 and tid != unk:
+            ids.add(tid)
+    return sorted(ids)
+
+
 def _call_transformers(
     prompts: list[str], state: TranslationModelState, *, max_new_tokens: int = 1024
 ) -> list[str]:
@@ -652,12 +679,14 @@ def _call_transformers(
     inputs = processor(text=chats, return_tensors="pt", padding=True).to(model.device)
     input_len = inputs["input_ids"].shape[-1]
 
+    eos_ids = _resolve_eos_ids(tok, model)
     with torch.inference_mode():
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=False,
             pad_token_id=getattr(tok, "pad_token_id", None),
+            eos_token_id=eos_ids or None,
         )
 
     generated = outputs[:, input_len:]
@@ -670,6 +699,10 @@ def _call_transformers(
 # ---------------------------------------------------------------------------
 
 _FORMAT_MAX_NEW_TOKENS = 2048
+# Reflow many windows in one generate() pass on GPU; CPU/MPS stay sequential to
+# avoid blowing memory for no decode-parallelism gain.
+_FORMAT_BATCH_SIZE_CUDA = 8
+_FORMAT_BATCH_SIZE = 1
 
 
 def format_prose(text: str, lang: str, *, model_state: TranslationModelState) -> str:
@@ -693,6 +726,54 @@ def format_prose(text: str, lang: str, *, model_state: TranslationModelState) ->
     else:  # mlx
         raw = _call_mlx(prompt, model_state)
     return _clean_prose(raw, text)
+
+
+def format_prose_batch(
+    texts: list[str],
+    lang: str,
+    *,
+    model_state: TranslationModelState,
+    on_progress: Optional[Callable[[int, int], None]] = None,
+) -> list[str]:
+    """Reflow several transcript windows, batching the generation pass.
+
+    Each window's result is identical to calling :func:`format_prose` on it
+    alone (greedy decode over an independent prompt); batching only removes the
+    per-window ``generate()`` overhead, which is the dominant cost of the notes
+    path. Empty windows pass through as ``""`` without a model call. Only the
+    transformers backend batches; mlx/ollama fall back to sequential calls.
+    """
+    total = len(texts)
+    if model_state.backend != "transformers":
+        out: list[str] = []
+        for i, text in enumerate(texts, 1):
+            out.append(format_prose(text, lang, model_state=model_state))
+            if on_progress:
+                on_progress(i, total)
+        return out
+
+    size = _FORMAT_BATCH_SIZE_CUDA if model_state.device == "cuda" else _FORMAT_BATCH_SIZE
+    results = [""] * total
+    done = 0
+    for start in range(0, total, size):
+        group = range(start, min(start + size, total))
+        idx: list[int] = []
+        prompts: list[str] = []
+        for i in group:
+            stripped = (texts[i] or "").strip()
+            if stripped:
+                idx.append(i)
+                prompts.append(_build_format_prompt(stripped, lang))
+        if prompts:
+            raws = _call_transformers(
+                prompts, model_state, max_new_tokens=_FORMAT_MAX_NEW_TOKENS
+            )
+            for i, raw in zip(idx, raws):
+                results[i] = _clean_prose(raw, (texts[i] or "").strip())
+        done += len(group)
+        if on_progress:
+            on_progress(done, total)
+    return results
 
 
 def _build_format_prompt(text: str, lang: str) -> str:

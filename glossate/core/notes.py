@@ -101,13 +101,11 @@ def _prose_blocks(
     on_progress: ProgressFn = None,
 ) -> list[tuple[float, str]]:
     windows = _chunk(cues, key)
-    blocks: list[tuple[float, str]] = []
-    for i, (start, text) in enumerate(windows, 1):
-        prose = _translator.format_prose(text, lang, model_state=state)
-        blocks.append((start, prose))
-        if on_progress:
-            on_progress(i, len(windows))
-    return blocks
+    texts = [text for _, text in windows]
+    prose = _translator.format_prose_batch(
+        texts, lang, model_state=state, on_progress=on_progress
+    )
+    return [(start, p) for (start, _), p in zip(windows, prose)]
 
 
 def _chunk(

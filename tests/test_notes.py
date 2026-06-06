@@ -21,12 +21,15 @@ def _cue(text: str, start: float = 0.0, end: float = 1.0, lang: str = "en") -> C
 
 @pytest.fixture()
 def fake_model(monkeypatch: pytest.MonkeyPatch) -> _translator.TranslationModelState:
-    """Stub the two Gemma passes; record format_prose invocations."""
+    """Stub the two Gemma passes; record reflow invocations."""
     calls: list[tuple[str, str]] = []
 
-    def fake_format(text: str, lang: str, *, model_state):  # noqa: ANN001
-        calls.append((lang, text))
-        return f"[{lang}]{text}"
+    def fake_format_batch(texts, lang, *, model_state, on_progress=None):  # noqa: ANN001
+        for text in texts:
+            calls.append((lang, text))
+        if on_progress:
+            on_progress(len(texts), len(texts))
+        return [f"[{lang}]{text}" for text in texts]
 
     def fake_translate(cues, target, source=None, *, model_state, on_progress=None):  # noqa: ANN001
         return [
@@ -41,7 +44,7 @@ def fake_model(monkeypatch: pytest.MonkeyPatch) -> _translator.TranslationModelS
             for c in cues
         ]
 
-    monkeypatch.setattr(_translator, "format_prose", fake_format)
+    monkeypatch.setattr(_translator, "format_prose_batch", fake_format_batch)
     monkeypatch.setattr(_translator, "translate", fake_translate)
     state = _translator.TranslationModelState(model=None, tokenizer=None, backend="transformers")
     state._format_calls = calls  # type: ignore[attr-defined]
