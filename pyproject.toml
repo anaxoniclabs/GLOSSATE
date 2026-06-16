@@ -1,7 +1,7 @@
 [project]
 name = "glossate"
 dynamic = ["version"]
-description = "Transcribe and translate video content - audio in, subtitles out"
+description = "Turn video or audio into translated subtitles or clean readable notes. Whisper + Gemma, CLI and Python, runs on CUDA, Apple Silicon, or CPU."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -10,13 +10,20 @@ authors = [
     {name = "Anaxonic Labs"}
 ]
 keywords = [
-    "video",
-    "audio",
+    "whisper",
+    "faster-whisper",
+    "gemma",
+    "speech-to-text",
     "transcription",
     "translation",
+    "machine-translation",
     "subtitles",
-    "whisper",
-    "ai",
+    "srt",
+    "video",
+    "audio",
+    "cli",
+    "python",
+    "mlx",
     "accessibility",
 ]
 classifiers = [
